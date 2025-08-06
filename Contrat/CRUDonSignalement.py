@@ -2,7 +2,7 @@ import aiomysql
 
 async def create_signalement(pool, planning_detail_id: int, motif: str, type_signalement: str) -> int | None:
     """
-    Crée un nouveau signalement dans la base de données.
+    Crée un nouveau signalement dans la base de données avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -16,14 +16,17 @@ async def create_signalement(pool, planning_detail_id: int, motif: str, type_sig
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute(
                 "INSERT INTO Signalement (planning_detail_id, motif, type) VALUES (%s, %s, %s)",
                 (planning_detail_id, motif, type_signalement)
             )
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.lastrowid
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la création du signalement : {e}")
         return None
     finally:
@@ -33,6 +36,7 @@ async def create_signalement(pool, planning_detail_id: int, motif: str, type_sig
 async def read_signalement(pool, signalement_id: int | None = None) -> list[dict] | dict | None:
     """
     Lit les informations d'un signalement spécifique par son ID, ou de tous les signalements.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -77,7 +81,7 @@ async def read_signalement(pool, signalement_id: int | None = None) -> list[dict
 
 async def update_signalement(pool, signalement_id: int, planning_detail_id: int, motif: str, type_signalement: str) -> int:
     """
-    Modifie un signalement existant.
+    Modifie un signalement existant avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -92,14 +96,17 @@ async def update_signalement(pool, signalement_id: int, planning_detail_id: int,
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE Signalement SET planning_detail_id = %s, motif = %s, type = %s WHERE signalement_id = %s",
                 (planning_detail_id, motif, type_signalement, signalement_id)
             )
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.rowcount
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la mise à jour du signalement : {e}")
         return 0
     finally:
@@ -108,7 +115,7 @@ async def update_signalement(pool, signalement_id: int, planning_detail_id: int,
 
 async def delete_signalement(pool, signalement_id: int) -> int:
     """
-    Supprime un signalement existant.
+    Supprime un signalement existant avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -120,11 +127,14 @@ async def delete_signalement(pool, signalement_id: int) -> int:
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM Signalement WHERE signalement_id = %s", (signalement_id,))
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.rowcount
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la suppression du signalement : {e}")
         return 0
     finally:
