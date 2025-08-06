@@ -4,7 +4,7 @@ from datetime import date
 
 async def create_historique(pool, traitement_id: int, contenu: str, date_traitement: date | None = None) -> int | None:
     """
-    Crée un historique pour un traitement donné.
+    Crée un historique pour un traitement donné avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -18,6 +18,7 @@ async def create_historique(pool, traitement_id: int, contenu: str, date_traitem
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             if date_traitement is None:
                 date_traitement = date.today()
@@ -25,9 +26,11 @@ async def create_historique(pool, traitement_id: int, contenu: str, date_traitem
                 "INSERT INTO Historique (traitement_id, contenu, date_traitement) VALUES (%s, %s, %s)",
                 (traitement_id, contenu, date_traitement)
             )
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.lastrowid
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la création de l'historique : {e}")
         return None
     finally:
@@ -38,6 +41,7 @@ async def create_historique(pool, traitement_id: int, contenu: str, date_traitem
 async def read_historique(pool, historique_id: int) -> dict | None:
     """
     Lit un historique à partir de son ID.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -62,7 +66,7 @@ async def read_historique(pool, historique_id: int) -> dict | None:
 
 async def update_historique(pool, historique_id: int, contenu: str, date_traitement: date) -> int:
     """
-    Modifie un historique existant.
+    Modifie un historique existant avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -76,14 +80,17 @@ async def update_historique(pool, historique_id: int, contenu: str, date_traitem
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE Historique SET contenu = %s, date_traitement = %s WHERE historique_id = %s",
                 (contenu, date_traitement, historique_id)
             )
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.rowcount
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la modification de l'historique (ID: {historique_id}) : {e}")
         return 0
     finally:
@@ -93,7 +100,7 @@ async def update_historique(pool, historique_id: int, contenu: str, date_traitem
 
 async def delete_historique(pool, historique_id: int) -> int:
     """
-    Supprime un historique à partir de son ID.
+    Supprime un historique à partir de son ID avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -105,11 +112,14 @@ async def delete_historique(pool, historique_id: int) -> int:
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM Historique WHERE historique_id = %s", (historique_id,))
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.rowcount
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la suppression de l'historique (ID: {historique_id}) : {e}")
         return 0
     finally:
@@ -120,6 +130,7 @@ async def delete_historique(pool, historique_id: int) -> int:
 async def get_historique_for_traitement(pool, traitement_id: int) -> list[dict]:
     """
     Récupère l'historique d'un traitement spécifique.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -147,6 +158,7 @@ async def create_historique_for_planning(pool, planning_id: int, contenu_specifi
     """
     Crée automatiquement un historique pour le traitement associé à un planning donné.
     Le contenu peut être spécifié ou généré par défaut.
+    Cette fonction appelle 'create_historique' qui gère déjà sa propre transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -170,9 +182,13 @@ async def create_historique_for_planning(pool, planning_id: int, contenu_specifi
                 else:
                     contenu = contenu_specifique
 
-                await create_historique(pool, traitement_id, contenu)
-                print(f"Historique créé pour le traitement {traitement_id} lié au planning {planning_id}.")
-                return True
+                success = await create_historique(pool, traitement_id, contenu)
+                if success:
+                    print(f"Historique créé pour le traitement {traitement_id} lié au planning {planning_id}.")
+                    return True
+                else:
+                    print(f"Échec de la création de l'historique pour le traitement {traitement_id} lié au planning {planning_id}.")
+                    return False
             else:
                 print(f"Aucun traitement trouvé pour le planning ID {planning_id}.")
                 return False
@@ -187,6 +203,7 @@ async def create_historique_for_planning(pool, planning_id: int, contenu_specifi
 async def afficher_historique_client(pool, client_id: int) -> None:
     """
     Affiche l'historique de tous les traitements d'un client.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
