@@ -3,7 +3,7 @@ import aiomysql
 
 async def create_facture(pool, traitement_id: int, montant: float, date_traitement: date, axe: str, remarque: str | None) -> int | None:
     """
-    Crée une nouvelle facture dans la base de données.
+    Crée une nouvelle facture dans la base de données avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -19,14 +19,17 @@ async def create_facture(pool, traitement_id: int, montant: float, date_traiteme
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute(
                 "INSERT INTO Facture (traitement_id, montant, date_traitement, axe, remarque) VALUES (%s, %s, %s, %s, %s)",
                 (traitement_id, montant, date_traitement, axe, remarque)
             )
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.lastrowid
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la création de la facture: {e}")
         return None
     finally:
@@ -36,6 +39,7 @@ async def create_facture(pool, traitement_id: int, montant: float, date_traiteme
 async def read_facture(pool, facture_id: int | None = None) -> list[dict] | dict | None:
     """
     Lit les détails d'une facture spécifique par ID ou de toutes les factures.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -65,7 +69,7 @@ async def read_facture(pool, facture_id: int | None = None) -> list[dict] | dict
 
 async def update_facture(pool, facture_id: int, traitement_id: int, montant: float, date_traitement: date, axe: str, remarque: str | None) -> int:
     """
-    Modifie une facture existante dans la base de données.
+    Modifie une facture existante dans la base de données avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -82,14 +86,17 @@ async def update_facture(pool, facture_id: int, traitement_id: int, montant: flo
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE Facture SET traitement_id = %s, montant = %s, date_traitement = %s, axe = %s, remarque = %s WHERE facture_id = %s",
                 (traitement_id, montant, date_traitement, axe, remarque, facture_id)
             )
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.rowcount
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la mise à jour de la facture (ID: {facture_id}): {e}")
         return 0
     finally:
@@ -98,7 +105,7 @@ async def update_facture(pool, facture_id: int, traitement_id: int, montant: flo
 
 async def delete_facture(pool, facture_id: int) -> int:
     """
-    Supprime une facture de la base de données.
+    Supprime une facture de la base de données avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -110,22 +117,24 @@ async def delete_facture(pool, facture_id: int) -> int:
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM Facture WHERE facture_id = %s", (facture_id,))
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.rowcount
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la suppression de la facture (ID: {facture_id}): {e}")
         return 0
     finally:
         if conn:
             pool.release(conn)
 
-# --- Fonction utilitaire ---
-
 async def obtenir_axe_contrat(pool, contrat_id: int) -> str | None:
     """
     Récupère l'axe géographique associé au client d'un contrat donné.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -137,20 +146,20 @@ async def obtenir_axe_contrat(pool, contrat_id: int) -> str | None:
     conn = None
     try:
         conn = await pool.acquire()
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute("""
+        async with conn.cursor(aiomysql.DictCursor) as cursor: # Utilisation de DictCursor
+            await cursor.execute("""
                 SELECT cl.axe
                 FROM Contrat c
                 JOIN Client cl ON c.client_id = cl.client_id
                 WHERE c.contrat_id = %s
             """, (contrat_id,))
-            resultat = await cur.fetchone()
+            resultat = await cursor.fetchone()
             if resultat:
-                return resultat['axe']
+                return resultat['axe'] # Accès par clé de dictionnaire
             else:
                 return None
     except Exception as e:
-        print(f"Erreur lors de la récupération de l'axe du contrat (ID: {contrat_id}): {e}")
+        print(f"Erreur lors de la récupération de l'axe du client pour contrat (ID: {contrat_id}) : {e}")
         return None
     finally:
         if conn:
