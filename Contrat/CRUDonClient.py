@@ -5,6 +5,7 @@ import aiomysql
 async def obtenir_categories(pool, table_name: str, column_name: str) -> list[str]:
     """
     Récupère les valeurs d'une colonne ENUM spécifique.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -18,7 +19,6 @@ async def obtenir_categories(pool, table_name: str, column_name: str) -> list[st
     try:
         conn = await pool.acquire()
         async with conn.cursor(aiomysql.DictCursor) as cursor:
-            # Requête pour obtenir le type de colonne depuis INFORMATION_SCHEMA
             query = """
                 SELECT COLUMN_TYPE
                 FROM INFORMATION_SCHEMA.COLUMNS
@@ -29,7 +29,6 @@ async def obtenir_categories(pool, table_name: str, column_name: str) -> list[st
 
             if result and 'COLUMN_TYPE' in result and result['COLUMN_TYPE'].startswith("enum("):
                 enum_str = result['COLUMN_TYPE']
-                # Extrait les valeurs de la chaîne
                 enum_values = [val.strip("'") for val in enum_str[5:-1].split(',')]
                 return enum_values
             return []
@@ -42,7 +41,7 @@ async def obtenir_categories(pool, table_name: str, column_name: str) -> list[st
 
 async def create_client(pool, nom: str, prenom: str, email: str, telephone: str, adresse: str, nif: str, stat: str, categorie: str, axe: str) -> int | None:
     """
-    Crée un nouveau client dans la base de données.
+    Crée un nouveau client dans la base de données avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -62,14 +61,17 @@ async def create_client(pool, nom: str, prenom: str, email: str, telephone: str,
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute(
                 "INSERT INTO Client (nom, prenom, email, telephone, adresse, nif, stat, date_ajout, categorie, axe) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (nom, prenom, email, telephone, adresse, nif, stat, date.today(), categorie, axe)
             )
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.lastrowid
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la création du client: {e}")
         return None
     finally:
@@ -79,6 +81,7 @@ async def create_client(pool, nom: str, prenom: str, email: str, telephone: str,
 async def read_client(pool, client_id: int | None = None) -> list[dict] | dict | None:
     """
     Lit les détails d'un client spécifique par ID ou de tous les clients.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -108,7 +111,7 @@ async def read_client(pool, client_id: int | None = None) -> list[dict] | dict |
 
 async def update_client(pool, client_id: int, nom: str, prenom: str, email: str, telephone: str, adresse: str, nif: str, stat: str, categorie: str, axe: str) -> int:
     """
-    Modifie un client existant.
+    Modifie un client existant dans la base de données avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -129,6 +132,7 @@ async def update_client(pool, client_id: int, nom: str, prenom: str, email: str,
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE Client SET nom = %s, prenom = %s, email = %s, telephone = %s, adresse = %s, nif = %s, stat = %s, categorie = %s, axe = %s WHERE client_id = %s",
@@ -137,6 +141,8 @@ async def update_client(pool, client_id: int, nom: str, prenom: str, email: str,
             await conn.commit()
             return cur.rowcount
     except Exception as e:
+        if conn:
+            await conn.rollback()
         print(f"Erreur lors de la mise à jour du client (ID: {client_id}): {e}")
         return 0
     finally:
@@ -145,7 +151,7 @@ async def update_client(pool, client_id: int, nom: str, prenom: str, email: str,
 
 async def delete_client(pool, client_id: int) -> int:
     """
-    Supprime un client de la base de données.
+    Supprime un client de la base de données avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -157,11 +163,14 @@ async def delete_client(pool, client_id: int) -> int:
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM Client WHERE client_id = %s", (client_id,))
             await conn.commit()
             return cur.rowcount
     except Exception as e:
+        if conn:
+            await conn.rollback()
         print(f"Erreur lors de la suppression du client (ID: {client_id}): {e}")
         return 0
     finally:
