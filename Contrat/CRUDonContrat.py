@@ -1,9 +1,9 @@
 import aiomysql
 from datetime import date
 
-async def create_contrat(pool, client_id: int, date_contrat: date, date_debut: date, date_fin_contrat: str | None, duree: str, categorie: str, duree_contrat: int | None = None):
+async def create_contrat(pool, client_id: int, date_contrat: date, date_debut: date, date_fin_contrat: str | None, duree: str, categorie: str, duree_contrat: int | None = None) -> int | None:
     """
-    Crée un nouveau contrat dans la base de données.
+    Crée un nouveau contrat dans la base de données avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -17,11 +17,12 @@ async def create_contrat(pool, client_id: int, date_contrat: date, date_debut: d
         duree_contrat (int | None): La durée du contrat en mois/années (INT dans la DB), ou None.
 
     Returns:
-        int: L'ID du contrat nouvellement créé, ou None en cas d'échec.
+        int | None: L'ID du contrat nouvellement créé, ou None en cas d'échec.
     """
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             # Vérifier si duree est 'Indeterminée' et ajuster date_fin_contrat et duree_contrat
             if duree == 'Indeterminée':
@@ -35,60 +36,86 @@ async def create_contrat(pool, client_id: int, date_contrat: date, date_debut: d
                 INSERT INTO Contrat (client_id, date_contrat, date_debut, date_fin, duree, categorie, duree_contrat)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (client_id, date_contrat, date_debut, date_fin_contrat_db, duree, categorie, duree_contrat_db))
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.lastrowid
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la création du contrat pour client {client_id}: {e}")
         return None
     finally:
         if conn:
             pool.release(conn)
 
-async def read_contrat(pool, contrat_id: int):
+async def read_contrat(pool, contrat_id: int | None = None) -> list[dict] | dict | None:
     """
-    Lit les détails d'un contrat spécifique à partir de son ID.
+    Lit les détails d'un contrat spécifique à partir de son ID ou tous les contrats.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
-        contrat_id (int): L'ID du contrat à lire.
+        contrat_id (int | None): L'ID du contrat à lire (optionnel).
 
     Returns:
-        dict: Un dictionnaire contenant les détails du contrat, ou None si non trouvé ou en cas d'erreur.
+        list[dict] | dict | None: Une liste de dictionnaires pour tous les contrats,
+                                  un seul dictionnaire pour un contrat spécifique,
+                                  ou None en cas d'erreur.
     """
     conn = None
     try:
         conn = await pool.acquire()
         async with conn.cursor(aiomysql.DictCursor) as cur: # Utilisation de DictCursor
-            await cur.execute("""
-                SELECT
-                    c.contrat_id,
-                    c.client_id,
-                    cl.nom AS nom_client,
-                    cl.prenom AS prenom_client,
-                    cl.email AS email_client,
-                    c.reference_contrat,
-                    c.date_contrat,
-                    c.date_debut,
-                    c.date_fin,
-                    c.statut_contrat,
-                    c.duree,
-                    c.categorie,
-                    c.duree_contrat
-                FROM Contrat c
-                JOIN Client cl ON c.client_id = cl.client_id
-                WHERE c.contrat_id = %s
-            """, (contrat_id,))
-            return await cur.fetchone() # Retourne un dictionnaire ou None
+            if contrat_id is None:
+                await cur.execute("""
+                    SELECT
+                        c.contrat_id,
+                        c.client_id,
+                        cl.nom AS nom_client,
+                        cl.prenom AS prenom_client,
+                        cl.email AS email_client,
+                        c.reference_contrat,
+                        c.date_contrat,
+                        c.date_debut,
+                        c.date_fin,
+                        c.statut_contrat,
+                        c.duree,
+                        c.categorie,
+                        c.duree_contrat
+                    FROM Contrat c
+                    JOIN Client cl ON c.client_id = cl.client_id
+                """)
+                return await cur.fetchall()
+            else:
+                await cur.execute("""
+                    SELECT
+                        c.contrat_id,
+                        c.client_id,
+                        cl.nom AS nom_client,
+                        cl.prenom AS prenom_client,
+                        cl.email AS email_client,
+                        c.reference_contrat,
+                        c.date_contrat,
+                        c.date_debut,
+                        c.date_fin,
+                        c.statut_contrat,
+                        c.duree,
+                        c.categorie,
+                        c.duree_contrat
+                    FROM Contrat c
+                    JOIN Client cl ON c.client_id = cl.client_id
+                    WHERE c.contrat_id = %s
+                """, (contrat_id,))
+                return await cur.fetchone()
     except Exception as e:
         print(f"Erreur lors de la lecture du contrat (ID: {contrat_id}) : {e}")
-        return None
+        return None if contrat_id is not None else []
     finally:
         if conn:
             pool.release(conn)
 
-async def update_contrat(pool, contrat_id: int, client_id: int, date_contrat: date, date_debut: date, date_fin_contrat: str | None, duree: str, categorie: str, duree_contrat: int | None = None):
+async def update_contrat(pool, contrat_id: int, client_id: int, date_contrat: date, date_debut: date, date_fin_contrat: str | None, duree: str, categorie: str, duree_contrat: int | None = None) -> int:
     """
-    Modifie un contrat existant dans la base de données.
+    Modifie un contrat existant dans la base de données avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -98,7 +125,7 @@ async def update_contrat(pool, contrat_id: int, client_id: int, date_contrat: da
         date_debut (date): La nouvelle date de début.
         date_fin_contrat (str | None): La nouvelle date de fin sous forme de chaîne (peut être None).
                                         Doit être au format 'YYYY-MM-DD' ou une description textuelle.
-        duree (str): La nouvelle durée ('Indeterminée' ou 'Déterminée').
+        duree (str): La nouvelle durée ('Indeterminee' ou 'Déterminée').
         categorie (str): La nouvelle catégorie ('Nouveau' ou 'Renouvellement').
         duree_contrat (int | None): La nouvelle durée du contrat en mois/années (INT dans la DB), ou None.
 
@@ -108,6 +135,7 @@ async def update_contrat(pool, contrat_id: int, client_id: int, date_contrat: da
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             # Ajuster date_fin_contrat et duree_contrat en fonction de la valeur de 'duree'
             if duree == 'Indeterminée':
@@ -122,18 +150,20 @@ async def update_contrat(pool, contrat_id: int, client_id: int, date_contrat: da
                 duree = %s, categorie = %s, duree_contrat = %s
                 WHERE contrat_id = %s
             """, (client_id, date_contrat, date_debut, date_fin_contrat_db, duree, categorie, duree_contrat_db, contrat_id))
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.rowcount # Retourne 1 si mise à jour, 0 si contrat non trouvé
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la modification du contrat (ID: {contrat_id}) : {e}")
         return 0
     finally:
         if conn:
             pool.release(conn)
 
-async def delete_contrat(pool, contrat_id: int):
+async def delete_contrat(pool, contrat_id: int) -> int:
     """
-    Supprime un contrat de la base de données.
+    Supprime un contrat de la base de données avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -145,27 +175,31 @@ async def delete_contrat(pool, contrat_id: int):
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM Contrat WHERE contrat_id = %s", (contrat_id,))
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.rowcount # Retourne 1 si supprimé, 0 si contrat non trouvé
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la suppression du contrat (ID: {contrat_id}) : {e}")
         return 0
     finally:
         if conn:
             pool.release(conn)
 
-async def obtenir_duree_contrat(pool, contrat_id: int):
+async def obtenir_duree_contrat(pool, contrat_id: int) -> str | None:
     """
     Récupère la durée principale du contrat ('Indeterminee', 'Déterminée').
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
         contrat_id (int): L'ID du contrat.
 
     Returns:
-        str: La valeur de la colonne 'duree' du contrat, ou None si non trouvé ou en cas d'erreur.
+        str | None: La valeur de la colonne 'duree' du contrat, ou None si non trouvé ou en cas d'erreur.
     """
     conn = None
     try:
@@ -184,16 +218,17 @@ async def obtenir_duree_contrat(pool, contrat_id: int):
         if conn:
             pool.release(conn)
 
-async def obtenir_axe_client_par_contrat(pool, contrat_id: int):
+async def obtenir_axe_client_par_contrat(pool, contrat_id: int) -> str | None:
     """
     Récupère l'axe géographique associé au client d'un contrat donné.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
         contrat_id (int): L'ID du contrat.
 
     Returns:
-        str: La valeur de l'axe du client, ou None si non trouvé ou en cas d'erreur.
+        str | None: La valeur de l'axe du client, ou None si non trouvé ou en cas d'erreur.
     """
     conn = None
     try:
