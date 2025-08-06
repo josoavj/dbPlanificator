@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 async def get_enum_values(pool, table_name: str, column_name: str) -> list[str]:
     """
     Récupère les valeurs d'une colonne ENUM d'une table spécifique.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -40,7 +41,7 @@ async def get_enum_values(pool, table_name: str, column_name: str) -> list[str]:
 
 async def create_planning(pool, traitement_id: int, redondance: str, date_debut_planification: date, duree_traitement: int = 12, unite_duree: str = 'mois') -> int | None:
     """
-    Crée un planning pour un traitement donné.
+    Crée un planning pour un traitement donné avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -56,6 +57,7 @@ async def create_planning(pool, traitement_id: int, redondance: str, date_debut_
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             # Calculer la date de fin de la planification
             if unite_duree == 'mois':
@@ -69,12 +71,16 @@ async def create_planning(pool, traitement_id: int, redondance: str, date_debut_
                 INSERT INTO Planning (traitement_id, redondance, date_debut_planification, date_fin_planification, duree_traitement, unite_duree)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, (traitement_id, redondance, date_debut_planification, date_fin_planification, duree_traitement, unite_duree))
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.lastrowid
     except ValueError as ve:
+        if conn:
+            await conn.rollback() # Annulation en cas d'erreur de valeur
         print(f"Erreur de valeur : {ve}")
         return None
     except Exception as e:
+        if conn:
+            await conn.rollback() # Annulation en cas d'autre erreur
         print(f"Erreur lors de la création du planning : {e}")
         return None
     finally:
@@ -84,6 +90,7 @@ async def create_planning(pool, traitement_id: int, redondance: str, date_debut_
 async def read_planning(pool, planning_id: int | None = None) -> list[dict] | dict | None:
     """
     Lit un planning à partir de son ID ou tous les plannings.
+    Cette fonction ne modifie pas la base de données, donc pas de transaction explicite.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -111,7 +118,7 @@ async def read_planning(pool, planning_id: int | None = None) -> list[dict] | di
 
 async def update_planning(pool, planning_id: int, traitement_id: int, redondance: str, date_debut_planification: date, duree_traitement: int, unite_duree: str) -> int:
     """
-    Modifie un planning existant.
+    Modifie un planning existant avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -128,6 +135,7 @@ async def update_planning(pool, planning_id: int, traitement_id: int, redondance
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             if unite_duree == 'mois':
                 date_fin_planification = date_debut_planification + timedelta(days=duree_traitement * 30)
@@ -140,12 +148,16 @@ async def update_planning(pool, planning_id: int, traitement_id: int, redondance
                 UPDATE Planning SET traitement_id = %s, redondance = %s, date_debut_planification = %s, date_fin_planification = %s, duree_traitement = %s, unite_duree = %s
                 WHERE planning_id = %s
             """, (traitement_id, redondance, date_debut_planification, date_fin_planification, duree_traitement, unite_duree, planning_id))
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.rowcount
     except ValueError as ve:
+        if conn:
+            await conn.rollback() # Annulation en cas d'erreur de valeur
         print(f"Erreur de valeur : {ve}")
         return 0
     except Exception as e:
+        if conn:
+            await conn.rollback() # Annulation en cas d'autre erreur
         print(f"Erreur lors de la mise à jour du planning : {e}")
         return 0
     finally:
@@ -154,7 +166,7 @@ async def update_planning(pool, planning_id: int, traitement_id: int, redondance
 
 async def delete_planning(pool, planning_id: int) -> int:
     """
-    Supprime un planning à partir de son ID.
+    Supprime un planning à partir de son ID avec gestion de transaction.
 
     Args:
         pool: Le pool de connexions aiomysql.
@@ -166,11 +178,14 @@ async def delete_planning(pool, planning_id: int) -> int:
     conn = None
     try:
         conn = await pool.acquire()
+        await conn.begin()  # Début de la transaction
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM Planning WHERE planning_id = %s", (planning_id,))
-            await conn.commit()
+            await conn.commit()  # Validation de la transaction
             return cur.rowcount
     except Exception as e:
+        if conn:
+            await conn.rollback()  # Annulation de la transaction en cas d'erreur
         print(f"Erreur lors de la suppression du planning : {e}")
         return 0
     finally:
