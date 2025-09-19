@@ -342,9 +342,6 @@ async def main():
                                 continue
                             mois = int(mois_str)
                             annee = int(annee_str)
-                            # Cette partie du code dépend d'un module externe, je l'ai donc commentée.
-                            # Pour la faire fonctionner, vous devez vous assurer que le module 'Rapports.export_excel'
-                            # est correctement installé et que la fonction 'generationFactureClient' est bien définie.
                             print("La fonction de génération de rapport Excel n'est pas implémentée dans ce script.")
                         except ValueError:
                             print("Entrée invalide. Veuillez entrer des numéros valides.")

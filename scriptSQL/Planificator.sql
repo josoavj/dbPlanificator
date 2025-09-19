@@ -143,7 +143,7 @@ CREATE TABLE Client (
                         nom VARCHAR(255) NOT NULL,
                         prenom VARCHAR(255),
                         email VARCHAR(255) NOT NULL,
-                        telephone VARCHAR(20) NOT NULL,
+                        telephone VARCHAR(30) NOT NULL,
                         adresse VARCHAR(255) NOT NULL,
                         nif VARCHAR(50),
                         stat VARCHAR(50),
@@ -293,5 +293,5 @@ CREATE TABLE Historique (
 
 /*
     Historique regroupe toutes les informations utiles pour chaque traitement effectué
-    Modifié et corrigé le 18 Juillet 2025
+    Modifié et corrigé le 18 Septembre 2025
 */

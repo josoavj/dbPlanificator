@@ -191,3 +191,14 @@ async def delete_planning(pool, planning_id: int) -> int:
     finally:
         if conn:
             pool.release(conn)
+
+"""
+    Répartition des redondances pour les plannings :
+    - Par semaine
+    - Deux à trois fois par semaine (Toutes les semaines)
+    - Deux fois par mois (Tous les 15 jours)
+    - Par mois
+    - Tous les deux mois
+    - Tous les 4 mois
+    - Tous les 6 mois 
+"""

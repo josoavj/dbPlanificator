@@ -164,3 +164,10 @@ async def obtenir_axe_contrat(pool, contrat_id: int) -> str | None:
     finally:
         if conn:
             pool.release(conn)
+
+
+"""
+    Répartition de la facturation :
+    - Une facture pour chaque traitement en géneral
+    - Possibilité d'assigner une seule facture pour deux ou plusieurs traitements
+"""
