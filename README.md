@@ -24,8 +24,9 @@
 - Contributeur du projet:
   - Pour la base de données: [josoavj](https://github.com/josoavj)
   - Pour l'interface: [Aina Maminirina](https://github.com/AinaMaminirina18)
-- Final Version: [Planificator 1.0]()
-
+- 1.0: [Planificator 1.0](https://github.com/APEXNovaLabs/Planificator.1.0)
+- 1.1: [Planificator 1.1](https://github.com/APEXNovaLabs/Planificator-1.1.1)
+  
 ### 📂 Structuration des dossiers
 
 ```
